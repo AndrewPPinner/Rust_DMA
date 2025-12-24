@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>WebRTC data-channels-create (Browser)</title>
+  <style>
+    body { font-family: monospace; }
+    #log { white-space: pre-wrap; border: 1px solid #ccc; padding: 8px; height: 1000px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+
+<button id="start">Start</button>
+<br><br>
+
+<input id="msg" placeholder="Type message…" />
+<button id="send" disabled>Send</button>
+
+<pre id="log"></pre>
+
+<script>
+  let dc = null;
+  let msgCount = 0;
+  
+const log = m => {
+  const el = document.getElementById("log");
+  if (msgCount > 250) {
+    el.textContent = ""
+    msgCount = 0
+  }
+  el.textContent += m + "\n";
+  el.scrollTop = el.scrollHeight;
+};
+
+
+document.getElementById("start").onclick = async () => {
+
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  });
+
+  pc.createDataChannel("dummy"); //Hate this but I don't want to do ice trickle yet
+  pc.ondatachannel = e => {
+    dc = e.channel;
+
+    dc.onopen = () => {
+        log("DataChannel open");
+        document.getElementById("send").disabled = false;
+    };
+
+    dc.onmessage = e => log((msgCount++) + ": From Rust: " + e.data);
+  };
+
+  // ===============================
+  // ICE logging
+  // ===============================
+  pc.onicecandidate = e => {
+    if (e.candidate) {
+      log("Browser ICE: " + e.candidate.candidate);
+    } else {
+      log("Browser ICE gathering complete");
+    }
+  };
+
+  // ===============================
+  // Create + send offer
+  // ===============================
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  await new Promise(resolve => {
+    if (pc.iceGatheringState === "complete") resolve();
+    pc.onicegatheringstatechange = () => {
+      if (pc.iceGatheringState === "complete") resolve();
+    };
+  });
+
+  const offerB64 = btoa(JSON.stringify(pc.localDescription));
+
+  const res = await fetch("http://192.168.1.106:54124", {
+    method: "POST",
+    body: offerB64
+  });
+
+  const answer = JSON.parse(atob(await res.text()));
+  await pc.setRemoteDescription(answer);
+
+  log("Answer applied");
+};
+
+// ===============================
+// Send message from browser → Rust
+// ===============================
+document.getElementById("send").onclick = () => {
+  const input = document.getElementById("msg");
+  const text = input.value.trim();
+  if (!text || !dc || dc.readyState !== "open") return;
+
+  dc.send(text);
+  log("To Rust: " + text);
+  input.value = "";
+};
+
+// Allow Enter key
+document.getElementById("msg").addEventListener("keydown", e => {
+  if (e.key === "Enter") document.getElementById("send").click();
+});
+</script>
+</body>
+</html>

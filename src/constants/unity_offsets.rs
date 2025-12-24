@@ -1,0 +1,10 @@
+pub const GAME_OBJECT_NAME: u64 = 0x88;
+pub const GAME_OBJECT_COMPONENTS: u64 = 0x58;
+pub const COMPONENTS_CLASS: u64 = 0x20;
+pub const UNITY_UTF8: u64 = 0x14;
+pub const ARRAY_COUNT_OFFSET: u64 = 0x18;
+pub const ARRAY_OFFSET: u64 = 0x10;
+pub const ARRAY_START: u64 = 0x20;
+
+pub const GAME_WORLD_CHAIN: [u64; 3] = [GAME_OBJECT_COMPONENTS, 0x18, COMPONENTS_CLASS];
+pub const OBJECT_NAME_CHAIN: [u64; 2] = [0x0, 0x10];
