@@ -16,7 +16,7 @@ use crate::{server::{Connection, ServerType}, tarkov::players::PopulatedPlayer, 
 async fn main() -> Result<()> {
     //Need to handle looping until game process found. That way you don't have to wait to open until game starts
     let (player_tx, mut player_rx) = tokio::sync::watch::channel::<Vec<PopulatedPlayer>>(Vec::with_capacity(10));
-    let (data_channel_tx, mut data_channel_rx) = mpsc::channel(10);
+    let (data_channel_tx, mut data_channel_rx) = mpsc::channel(10); //might want to use unbound?
 
     let reader_thread = tokio::task::spawn_blocking(move || -> Result<(), anyhow::Error> {
         let vmm = Vmm::new("C:\\Users\\andpp\\code\\Rust_DMA\\src\\vmm.dll", &vec!["-device", "fpga"])?;
@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
                 for conn in &connections {
                     if let Err(err) = conn.send::<Vec<PopulatedPlayer>>(populated_players.as_ref()).await {
                         println!("Something broke: {}", err)
-                        //Probably should close if err indicates conn closed
+                        //Probably should close if err indicates conn closed (NEED TO DO THIS)
                     }
                 }
             }
@@ -80,7 +80,8 @@ async fn main() -> Result<()> {
 
     //Check config and either start WebRTC or WebSocket or NONE
     let server_thread = tokio::spawn(async move {
-        ServerType::WebRTC.start_server(&data_channel_tx).await?;
+        ServerType::SSE.start_server(&data_channel_tx).await?;
+        // ServerType::WebRTC.start_server(&data_channel_tx).await?;
         Ok::<(), anyhow::Error>(())
     });
 
