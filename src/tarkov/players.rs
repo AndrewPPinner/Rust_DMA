@@ -125,42 +125,42 @@ impl TarkovVmmProcess<'_> {
     fn get_player_details(&self, player_ptr: u64, p_type: &PlayerType) -> Result<Player> {
         match p_type {
             PlayerType::ClientPlayer | PlayerType::MainPlayer => {
-                let profile_ptr = self.vmm.mem_read_as::<u64>(player_ptr + player_offsets::PROFILE, 0)?;
-                let info_ptr = self.vmm.mem_read_as::<u64>(profile_ptr + player_offsets::INFO, 0)?;
-                let faction_value = self.vmm.mem_read_as::<i32>(info_ptr + player_offsets::FACTION, 0)?;
+                let profile_ptr = self.vmm.mem_read_as::<u64>(player_ptr + self.player_offsets.profile, 0)?;
+                let info_ptr = self.vmm.mem_read_as::<u64>(profile_ptr + self.player_offsets.info, 0)?;
+                let faction_value = self.vmm.mem_read_as::<i32>(info_ptr + self.player_offsets.faction, 0)?;
 
                 // let group_id_ptr = process.vmm.mem_read_as::<u64>(info_ptr + player_offsets::GROUP_ID, 0)?;
                 // let group_id = process.mem_read_string(group_id_ptr, 128, Encoding::UFT8)?;
 
-                let move_context_ptr = self.vmm.mem_read_as::<u64>(player_ptr + player_offsets::MOVEMENT_CONTEXT, 0)?;
-                let rotation_addr = move_context_ptr + player_offsets::ROTATION;
+                let move_context_ptr = self.vmm.mem_read_as::<u64>(player_ptr + self.player_offsets.movement_context, 0)?;
+                let rotation_addr = move_context_ptr + self.player_offsets.rotation;
                 self.scatter.prepare_as::<Vector2>(rotation_addr)?;
 
                 return Ok(Player { ptr: player_ptr, faction: Faction::try_from(faction_value)?, human: true, player_type: PlayerType::ClientPlayer, health_addr: 0, rota_addr: rotation_addr });
             },
             PlayerType::NetworkedPlayer => {
                 //Can ignore profle stuff since that is just an API call and I can make web client handle that
-                let player_controller_ptr = self.vmm.mem_read_as::<u64>(player_ptr + player_offsets::NETWORKED_PLAYER_CONTROLLER, 0)?;
-                let health_ptr = self.vmm.mem_read_as::<u64>(player_controller_ptr + player_offsets::NETWORKED_HEALTH_CONTROLLER, 0)?;
-                let move_context_ptr = self.mem_read_chain(player_controller_ptr, player_offsets::NETWORKED_MOVEMENT_CHAIN)?;
-                let is_bot = self.vmm.mem_read_as::<bool>(player_ptr + player_offsets::IS_BOT, 0)?;
+                let player_controller_ptr = self.vmm.mem_read_as::<u64>(player_ptr + self.player_offsets.networked_player_controller, 0)?;
+                let health_ptr = self.vmm.mem_read_as::<u64>(player_controller_ptr + self.player_offsets.networked_health_controller, 0)?;
+                let move_context_ptr = self.mem_read_chain(player_controller_ptr, self.player_offsets.networked_movement_chain)?;
+                let is_bot = self.vmm.mem_read_as::<bool>(player_ptr + self.player_offsets.networked_is_bot, 0)?;
                 
                 if !is_bot {
-                    let group_id_ptr = self.vmm.mem_read_as::<u64>(player_ptr + player_offsets::NETWORKED_GROUP_ID, 0)?;
+                    let group_id_ptr = self.vmm.mem_read_as::<u64>(player_ptr + self.player_offsets.group_id, 0)?;
                     let group_id = self.mem_read_string(group_id_ptr + unity_offsets::UNITY_UTF8, 128, Encoding::UNICODE)?; //Still needs tested
                 }
                 
-                let faction_value = self.vmm.mem_read_as::<i32>(player_ptr + player_offsets::NETWORKED_FACTION, 0)?;
+                let faction_value = self.vmm.mem_read_as::<i32>(player_ptr + self.player_offsets.networked_faction, 0)?;
                 let faction = Faction::try_from(faction_value)?;
                 
                 // Works but the SCAV_{num} isn't unique. Probably fine.
                 if faction == Faction::SCAV{
-                    let voice_ptr = self.vmm.mem_read_as::<u64>(player_ptr + player_offsets::NETWORKED_VOICE, 0)?;
+                    let voice_ptr = self.vmm.mem_read_as::<u64>(player_ptr + self.player_offsets.networked_voice, 0)?;
                     let voice = self.mem_read_string(voice_ptr + unity_offsets::UNITY_UTF8, 128, Encoding::UNICODE)?;
                 }
                 
-                let rotation_addr = move_context_ptr + player_offsets::NETWORKED_ROTATION;
-                let health_addr = health_ptr + player_offsets::NETWORKED_HEALTH_VALUE;
+                let rotation_addr = move_context_ptr + self.player_offsets.networked_rotation;
+                let health_addr = health_ptr + self.player_offsets.networked_health_value;
                 self.scatter.prepare_as::<i32>(health_addr)?;
                 self.scatter.prepare_as::<Vector2>(rotation_addr)?;
                 

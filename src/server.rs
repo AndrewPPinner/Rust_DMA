@@ -5,7 +5,7 @@ use base64::{Engine, engine::general_purpose};
 use bytes::Bytes;
 use easy_upnp::{Ipv4Cidr, PortMappingProtocol, UpnpConfig, add_ports};
 use serde::Serialize;
-use tokio::{net::TcpListener, sync::mpsc::{self, Sender}};
+use tokio::{sync::mpsc::{self, Sender}};
 use webrtc::{api::APIBuilder, data, data_channel::{RTCDataChannel, data_channel_state::RTCDataChannelState}, ice_transport::ice_server::RTCIceServer, peer_connection::{configuration::RTCConfiguration, sdp::session_description::RTCSessionDescription}};
 
 pub enum ServerType {
@@ -112,6 +112,7 @@ async fn start_sse_server(sender_channel: &Sender<Connection>) -> Result<()> {
                     break;
                 }
             }
+            drop(rx);
         });
         
         if let Err(_) = sender_channel.send(conn).await {

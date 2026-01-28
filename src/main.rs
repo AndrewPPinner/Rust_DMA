@@ -10,7 +10,7 @@ use anyhow::Result;
 use memprocfs::{FLAG_NOCACHE, Vmm};
 use tokio::{join, sync::mpsc, time::{sleep}};
 
-use crate::{server::{Connection, ServerType}, tarkov::players::PopulatedPlayer, vmm_wrapper::TarkovVmmProcess};
+use crate::{constants::player_offsets, server::{Connection, ServerType}, tarkov::players::PopulatedPlayer, vmm_wrapper::TarkovVmmProcess};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
         let process = vmm.process_from_name("EscapeFromTarkov.exe")?;
         
         let unity_base = process.get_module_base("UnityPlayer.dll")?;
-        let tarkov_process = TarkovVmmProcess { vmm: process, unity_base: unity_base, scatter: process.mem_scatter(FLAG_NOCACHE)? };
+        let tarkov_process = TarkovVmmProcess { vmm: process, unity_base: unity_base, scatter: process.mem_scatter(FLAG_NOCACHE)?, player_offsets: player_offsets::PLAYER_OFFSETS };
     
         let game_world = tarkov_process.get_game_world()?;
         println!("GameWorld Found {} | Map {}", game_world.game_world_ptr, game_world.map_name);
