@@ -11,10 +11,13 @@ fn main() {
     let rust_source = fs::read_to_string("src/constants/player_offsets.rs").unwrap();
     let syntax_tree = parse_file(&rust_source).unwrap();
 
+    let header = "// GENERATED FILE!! DO NOT EDIT\n\n";
+
     let generated = generate_const_from_mapping(&syntax_tree, &offsets_map);
+    let file_contents = format!("{}{}", header, generated);
     
-    let mut f = File::create(&"oink_test.rs").unwrap();
-    f.write_all(generated.to_string().as_bytes()).unwrap();
+    let mut f = File::create(&"./src/constants/generated_player_offsets.rs").unwrap();
+    f.write_all(file_contents.as_bytes()).unwrap();
     
     println!("cargo:rerun-if-changed=src/contants/player_offsets.rs");
     println!("cargo:rerun-if-changed=src/contants/game_offsets.rs");
@@ -74,6 +77,7 @@ fn generate_const_from_mapping(
     quote! { /* struct not found */ }
 }
 
+//This code is all super sloppy but it works so eh, will clean up later
 fn generate_const_for_struct(
     item_struct: &syn::ItemStruct,
     offsets: &HashMap<(String, String), String>,
@@ -82,18 +86,32 @@ fn generate_const_for_struct(
     if let Fields::Named(fields) = &item_struct.fields {
         let field_values = fields.named.iter().filter_map(|field| {
             let rust_field_name = field.ident.as_ref().unwrap();
+            let mut chains = HashMap::<String, (String, String)>::new();
             
             // Find all props with cfg_attr and get their mapping from parsing Lone's SDK
             let offset_value = field.attrs.iter()
                 .find_map(|attr| extract_cfg_attr_mapping(attr))
-                .and_then(|(csharp_struct_name, csharp_field_name)| { 
+                .and_then(|(csharp_struct_name, csharp_field_name, is_chain)| { 
+                    if is_chain {
+                        let struct_names: Vec<&str> = csharp_struct_name.split("|").collect();
+                        let field_names: Vec<&str> = csharp_field_name.split("|").collect();
+
+                        let v1 = offsets.get(&(struct_names[0].trim().to_string(), field_names[0].trim().to_string()));
+                        let v2 = offsets.get(&(struct_names[1].trim().to_string(), field_names[1].trim().to_string()));
+
+                        chains.insert(rust_field_name.to_string(), (v1.unwrap().to_string(), v2.unwrap().to_string()));
+                    }
                     return offsets.get(&(csharp_struct_name, csharp_field_name));
                 });
-            
             //Format to u64 literal instead of string value
             if let Some(v) = offset_value {
-                let lit = syn::LitInt::new(&format!("{}", v), proc_macro2::Span::call_site());
-                return Some(quote! { #rust_field_name: #lit });
+                let lit_value = syn::LitInt::new(&format!("{}", v), proc_macro2::Span::call_site());
+                return Some(quote! { #rust_field_name: #lit_value });
+            } else if let Some(v) = chains.get(&rust_field_name.to_string()) {
+                let lit_value = syn::LitInt::new(&format!("{}", v.0), proc_macro2::Span::call_site());
+                let lit_value2 = syn::LitInt::new(&format!("{}", v.1), proc_macro2::Span::call_site());
+                
+                return Some(quote! { #rust_field_name: [#lit_value, #lit_value2] });
             }
 
             return None;
@@ -109,7 +127,7 @@ fn generate_const_for_struct(
     quote! {}
 }
 
-fn extract_cfg_attr_mapping(attr: &Attribute) -> Option<(String, String)> {
+fn extract_cfg_attr_mapping(attr: &Attribute) -> Option<(String, String, bool)> {
     // Parse #[cfg_attr(any(), csharp_struct = "Player", csharp_field = "Location")]
     if !attr.path().is_ident("cfg_attr") {
         return None;
@@ -117,6 +135,7 @@ fn extract_cfg_attr_mapping(attr: &Attribute) -> Option<(String, String)> {
     
     let mut struct_name = None;
     let mut field_name = None;
+    let mut is_chain = false;
     
     if let Ok(meta_list) = &attr.meta.require_list() {
         let tokens_str = meta_list.tokens.to_string();
@@ -132,13 +151,13 @@ fn extract_cfg_attr_mapping(attr: &Attribute) -> Option<(String, String)> {
                     field_name = Some(value);
                 }
             } else if part.starts_with("is_chain") {
-                todo!("Need to handle this somehow, might parse as normal and handle when building...")
+                is_chain = true
             }
         }
     }
     
     match (struct_name, field_name) {
-        (Some(s), Some(f)) => Some((s, f)),
+        (Some(s), Some(f)) => Some((s, f, is_chain)),
         _ => None,
     }
 }
