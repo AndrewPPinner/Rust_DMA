@@ -1,7 +1,7 @@
 use anyhow::{Error, Result, anyhow};
 use memprocfs::{FLAG_NOCACHE};
 use serde::{Serialize};
-use crate::{constants::{game_offsets, player_offsets, unity_offsets}, utils::{Encoding, Vector2}, vmm_wrapper::TarkovVmmProcess};
+use crate::{constants::{unity_offsets}, utils::{Encoding, Vector2}, vmm_wrapper::TarkovVmmProcess};
 
 #[derive(Debug)]
 pub struct Player {
@@ -11,7 +11,8 @@ pub struct Player {
     pub player_type: PlayerType,
 
     pub health_addr: u64,
-    pub rota_addr: u64
+    pub rota_addr: u64,
+    pub corpse_addr: u64
 }
 
 #[derive(Debug, Serialize)]
@@ -88,7 +89,7 @@ impl TryFrom<i32> for HealthStatus {
 impl TarkovVmmProcess<'_> {
     pub fn get_players(&self, game_world_ptr: u64) -> Result<Vec<Player>> {
         //Make this a scatter read since local player and all players don't rely on each other (add benchmarking to see if scatters with just x reads is worth the added over head of the scatter struct)
-        let local_player_ptr = self.vmm.mem_read_as::<u64>(game_world_ptr + game_offsets::MAIN_PLAYER, FLAG_NOCACHE)?;
+        let local_player_ptr = self.vmm.mem_read_as::<u64>(game_world_ptr + self.game_offsets.main_player, FLAG_NOCACHE)?;
         let main_player = self.get_main_player(local_player_ptr)?;
         let mut all_players = self.get_all_players(game_world_ptr, local_player_ptr)?;
         all_players.push(main_player);
@@ -97,7 +98,7 @@ impl TarkovVmmProcess<'_> {
     }
 
     fn get_all_players(&self, game_world_ptr: u64, player_to_ignore: u64) -> Result<Vec<Player>> {
-        let players_address = self.vmm.mem_read_as::<u64>(game_world_ptr + game_offsets::ALL_PLAYERS, FLAG_NOCACHE)?;
+        let players_address = self.vmm.mem_read_as::<u64>(game_world_ptr + self.game_offsets.all_players, FLAG_NOCACHE)?;
         let player_count = self.vmm.mem_read_as::<i32>(players_address + unity_offsets::ARRAY_COUNT_OFFSET, 0)?;
         let vec_ptr = self.vmm.mem_read_as::<u64>(players_address + unity_offsets::ARRAY_OFFSET, 0)? + unity_offsets::ARRAY_START;
         let mut player_ptr_vec = self.mem_read_array_into_buffer(vec_ptr, player_count as usize)?;
@@ -136,7 +137,7 @@ impl TarkovVmmProcess<'_> {
                 let rotation_addr = move_context_ptr + self.player_offsets.rotation;
                 self.scatter.prepare_as::<Vector2>(rotation_addr)?;
 
-                return Ok(Player { ptr: player_ptr, faction: Faction::try_from(faction_value)?, human: true, player_type: PlayerType::ClientPlayer, health_addr: 0, rota_addr: rotation_addr });
+                return Ok(Player { ptr: player_ptr, faction: Faction::try_from(faction_value)?, human: true, player_type: PlayerType::ClientPlayer, health_addr: 0, corpse_addr: 0, rota_addr: rotation_addr });
             },
             PlayerType::NetworkedPlayer => {
                 //Can ignore profle stuff since that is just an API call and I can make web client handle that
@@ -161,10 +162,12 @@ impl TarkovVmmProcess<'_> {
                 
                 let rotation_addr = move_context_ptr + self.player_offsets.networked_rotation;
                 let health_addr = health_ptr + self.player_offsets.networked_health_value;
+                let corpse_addr = health_ptr + self.player_offsets.networked_corpse;
                 self.scatter.prepare_as::<i32>(health_addr)?;
                 self.scatter.prepare_as::<Vector2>(rotation_addr)?;
+                self.scatter.prepare_as::<u64>(corpse_addr)?;
                 
-                return Ok(Player { ptr: player_ptr, faction, human: !is_bot, player_type: PlayerType::NetworkedPlayer, health_addr: health_addr, rota_addr: rotation_addr });
+                return Ok(Player { ptr: player_ptr, faction, human: !is_bot, player_type: PlayerType::NetworkedPlayer, health_addr: health_addr, rota_addr: rotation_addr, corpse_addr: corpse_addr });
             },
         }
     }
@@ -173,6 +176,7 @@ impl TarkovVmmProcess<'_> {
     pub fn populate_player(&self, player: &Player) -> Result<PopulatedPlayer> {
         let health_value = self.scatter.read_as::<i32>(player.health_addr)?;
         let rotation_value = self.scatter.read_as::<Vector2>(player.rota_addr)?;
+        let corpse_value = self.scatter.read_as::<u64>(player.corpse_addr)?;
         let status = HealthStatus::try_from(health_value)?; 
 
         return Ok(PopulatedPlayer { faction: player.faction, human: player.human, player_type: player.player_type, health_status: status, rotation: rotation_value })

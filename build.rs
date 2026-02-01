@@ -4,20 +4,23 @@ use std::fs::{self, File};
 use std::io::Write;
 use syn::{parse_file, Attribute, Fields};
 
+const FILES_TO_PROCESS : [(&str, &str, &str); 2] = [("player_offsets.rs", "PlayerOffsets", "PLAYER_OFFSETS"), ("game_offsets.rs", "GameOffsets", "GAME_OFFSETS")];
+
 fn main() {
     let lone_sdk_offsets = fetch_csharp_offsets();
     let offsets_map = parse_csharp_offsets(&lone_sdk_offsets);
 
-    let rust_source = fs::read_to_string("src/constants/player_offsets.rs").unwrap();
-    let syntax_tree = parse_file(&rust_source).unwrap();
+    for file in FILES_TO_PROCESS {
+        let rust_source = fs::read_to_string(format!("src/constants/{}", file.0)).unwrap();
+        let syntax_tree = parse_file(&rust_source).unwrap();
 
-    let header = "// GENERATED FILE!! DO NOT EDIT\n\n";
-
-    let generated = generate_const_from_mapping(&syntax_tree, &offsets_map);
-    let file_contents = format!("{}{}", header, generated);
-    
-    let mut f = File::create(&"./src/constants/generated_player_offsets.rs").unwrap();
-    f.write_all(file_contents.as_bytes()).unwrap();
+        let header = "// GENERATED FILE!! DO NOT EDIT\n\n";
+        let generated = generate_const_from_mapping(&syntax_tree, &offsets_map, file.1, file.2);
+        let file_contents = format!("{}{}", header, generated);
+        
+        let mut f = File::create(format!("./src/constants/generated_{}", file.0)).unwrap();
+        f.write_all(file_contents.as_bytes()).unwrap();
+    }
     
     println!("cargo:rerun-if-changed=src/contants/player_offsets.rs");
     println!("cargo:rerun-if-changed=src/contants/game_offsets.rs");
@@ -65,11 +68,14 @@ fn parse_csharp_offsets(content: &str) -> HashMap<(String, String), String> {
 fn generate_const_from_mapping(
     syntax_tree: &syn::File,
     offsets: &HashMap<(String, String), String>,
+    struct_to_fill: &str,
+    generated_const_name: &str
 ) -> proc_macro2::TokenStream {
     for item in &syntax_tree.items {
         if let syn::Item::Struct(item_struct) = item {
-            if item_struct.ident == "PlayerOffsets" {
-                return generate_const_for_struct(item_struct, offsets);
+            println!("cargo:warning=FINDME {} | {}", item_struct.ident, struct_to_fill);
+            if item_struct.ident == struct_to_fill {
+                return generate_const_for_struct(item_struct, offsets, generated_const_name);
             }
         }
     }
@@ -81,6 +87,7 @@ fn generate_const_from_mapping(
 fn generate_const_for_struct(
     item_struct: &syn::ItemStruct,
     offsets: &HashMap<(String, String), String>,
+    generated_const_name: &str
 ) -> proc_macro2::TokenStream {
     let rust_struct_name = &item_struct.ident;
     if let Fields::Named(fields) = &item_struct.fields {
@@ -103,6 +110,7 @@ fn generate_const_for_struct(
                     }
                     return offsets.get(&(csharp_struct_name, csharp_field_name));
                 });
+
             //Format to u64 literal instead of string value
             if let Some(v) = offset_value {
                 let lit_value = syn::LitInt::new(&format!("{}", v), proc_macro2::Span::call_site());
@@ -117,8 +125,9 @@ fn generate_const_for_struct(
             return None;
         });
         
+        let const_name_literal = syn::Ident::new(&format!("{}", generated_const_name), proc_macro2::Span::call_site());
         return quote! {
-            pub const PLAYER_OFFSETS: #rust_struct_name = #rust_struct_name {
+            pub const #const_name_literal: #rust_struct_name = #rust_struct_name {
                 #(#field_values,)*
             };
         };

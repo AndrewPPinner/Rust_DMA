@@ -1,12 +1,13 @@
 use memprocfs::{FLAG_NOCACHE, VmmProcess, VmmScatterMemory};
 use anyhow::{Ok, Result};
-use crate::{constants::{player_offsets::PlayerOffsets, unity_offsets}, utils::Encoding};
+use crate::{constants::{game_offsets::GameOffsets, player_offsets::PlayerOffsets, unity_offsets}, utils::Encoding};
 
 pub struct TarkovVmmProcess<'a> {
     pub scatter: VmmScatterMemory<'a>,
     pub vmm: VmmProcess<'a>,
     pub unity_base: u64,
-    pub player_offsets: PlayerOffsets
+    pub player_offsets: PlayerOffsets,
+    pub game_offsets: GameOffsets
 }
 
 impl TarkovVmmProcess<'_> {

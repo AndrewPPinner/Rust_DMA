@@ -22,16 +22,18 @@ pub struct PlayerOffsets {
     pub networked_health_controller: u64,
     #[cfg_attr(any(), csharp_struct = "ObservedHealthController", csharp_field = "HealthStatus")]
     pub networked_health_value: u64,
+    #[cfg_attr(any(), csharp_struct = "ObservedHealthController", csharp_field = "_playerCorpse")]
+    pub networked_corpse: u64,
     #[cfg_attr(any(), csharp_struct = "ObservedPlayerStateContext", csharp_field = "Rotation")]
     pub networked_rotation: u64,
     #[cfg_attr(any(), csharp_struct = "ObservedPlayerView", csharp_field = "Side")]
     pub networked_faction: u64,
     #[cfg_attr(any(), csharp_struct = "ObservedPlayerView", csharp_field = "Voice")]
     pub networked_voice: u64,
+
     
     #[cfg_attr(any(), is_chain = true, csharp_struct = "ObservedPlayerController | ObservedPlayerMovementController", csharp_field = "MovementController | ObservedPlayerStateContext")]
     pub networked_movement_chain: [u64; 2]
 }
 
 include!("generated_player_offsets.rs");
-//Create procmacro that builds these via a json unispect dump pulls from lones C# file

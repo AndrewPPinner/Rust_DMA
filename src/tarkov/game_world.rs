@@ -2,7 +2,7 @@ use std::{sync::{Arc, atomic::{AtomicBool, Ordering}, mpsc}, thread};
 
 use anyhow::{Result, anyhow};
 use memprocfs::{FLAG_NOCACHE};
-use crate::{constants::{game_offsets, unity_offsets}, utils::Encoding, vmm_wrapper::TarkovVmmProcess};
+use crate::{constants::{unity_offsets}, utils::Encoding, vmm_wrapper::TarkovVmmProcess};
 
 #[repr(C)]
 pub struct GameObjectManager {
@@ -99,9 +99,9 @@ impl TarkovVmmProcess<'_> {
         }
         
         let local_world_ptr = self.mem_read_chain(current.object, unity_offsets::GAME_WORLD_CHAIN)?;
-        let mut map_ptr = self.vmm.mem_read_as::<u64>(local_world_ptr + game_offsets::LOCATION_ID, 0)?;
+        let mut map_ptr = self.vmm.mem_read_as::<u64>(local_world_ptr + self.game_offsets.location_id, 0)?;
         if map_ptr == 0x0 {
-            let local_player = self.vmm.mem_read_as::<u64>(local_world_ptr + game_offsets::MAIN_PLAYER, 0)?;
+            let local_player = self.vmm.mem_read_as::<u64>(local_world_ptr + self.game_offsets.main_player, 0)?;
             map_ptr = self.vmm.mem_read_as::<u64>(local_player + self.player_offsets.location, 0)?;
         }
 
