@@ -1,7 +1,7 @@
 use std::{io::Write, sync::Arc};
 
 use anyhow::{Result};
-use base64::{Engine, engine::general_purpose};
+use base64::{Engine, engine::general_purpose::{self, NO_PAD}, prelude::BASE64_STANDARD_NO_PAD};
 use bytes::Bytes;
 use easy_upnp::{Ipv4Cidr, PortMappingProtocol, UpnpConfig, add_ports};
 use serde::Serialize;
@@ -60,7 +60,7 @@ impl Connection {
                 return web_rtc_conn.data_channel.ready_state() == RTCDataChannelState::Open;
             },
             InnerConnection::WebSocket(web_socket_connection) => todo!(),
-            InnerConnection::SSE(sseconnection) => todo!(),
+            InnerConnection::SSE(sseconnection) => sseconnection.writer_channel.is_closed(),
         }
     }
 }
@@ -87,14 +87,28 @@ async fn start_sse_server(sender_channel: &Sender<Connection>) -> Result<()> {
     let server = tiny_http::Server::http("0.0.0.0:54124").unwrap();
     
     for rq in server.incoming_requests() {
+        if rq.method() == &tiny_http::Method::Options {
+            let mut writer = rq.into_writer();
+            writer.write_all(
+                b"HTTP/1.1 204 No Content\r\n\
+                Access-Control-Allow-Origin: *\r\n\
+                Access-Control-Allow-Methods: GET, OPTIONS\r\n\
+                Access-Control-Allow-Headers: Content-Type\r\n\
+                \r\n"
+            )?;
+            writer.flush()?;
+            continue;
+        }
         println!("sse request recieved");
         let (tx, mut rx) = mpsc::channel(10);
         let mut writer = rq.into_writer();
         writer.write_all(
             b"HTTP/1.1 200 OK\r\n\
-              Content-Type: text/event-stream\r\n\
-              Cache-Control: no-cache\r\n\
-              Connection: keep-alive\r\n\r\n"
+            Content-Type: text/event-stream\r\n\
+            Cache-Control: no-cache\r\n\
+            Connection: keep-alive\r\n\
+            Access-Control-Allow-Origin: *\r\n\
+            \r\n"
         )?;
         writer.flush()?;
 
@@ -106,8 +120,10 @@ async fn start_sse_server(sender_channel: &Sender<Connection>) -> Result<()> {
 
         tokio::spawn(async move {
             while let Some(data) = rx.recv().await {
+                let encoded = BASE64_STANDARD_NO_PAD.encode(&data); //Is this needed?
+
                 if writer.write_all(b"data: ").is_err()
-                    || writer.write_all(&data).is_err()
+                    || writer.write_all(encoded.as_bytes()).is_err()
                     || writer.write_all(b"\n\n").is_err() || writer.flush().is_err() {
                     break;
                 }

@@ -13,11 +13,17 @@ use crate::{constants::{game_offsets, player_offsets}, server::{Connection, Serv
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let guard = pprof::ProfilerGuardBuilder::default()
+        .frequency(1000)
+        .build()
+        .unwrap();
+
     //Need to handle looping until game process found. That way you don't have to wait to open until game starts
     let (player_tx, mut player_rx) = tokio::sync::watch::channel::<Vec<PopulatedPlayer>>(Vec::with_capacity(10));
     let (data_channel_tx, mut data_channel_rx) = mpsc::channel(10); //might want to use unbound?
 
-    let reader_thread = tokio::task::spawn_blocking(move || -> Result<(), anyhow::Error> {
+    //If something fails in this thread we should kill the process and state the error
+    let _reader_thread = tokio::task::spawn_blocking(move || -> Result<(), anyhow::Error> {
         let vmm = Vmm::new("C:\\Users\\andpp\\code\\Rust_DMA\\src\\vmm.dll", &vec!["-device", "fpga"])?;
         let process = vmm.process_from_name("EscapeFromTarkov.exe")?;
         
@@ -50,8 +56,7 @@ async fn main() -> Result<()> {
     });
 
     //Handle exits better
-    //Figure out why sometimes, when a new client is connected, they don't get data...
-    let broadcast_thread = thread::spawn(move || -> Result<(), anyhow::Error> {
+    let _broadcast_thread = thread::spawn(move || -> Result<(), anyhow::Error> {
         let async_thread = 
             tokio::runtime::Builder::new_current_thread()
             .enable_all().build()?;
@@ -75,7 +80,7 @@ async fn main() -> Result<()> {
 
                 for conn in &connections {
                     if let Err(err) = conn.send::<Vec<PopulatedPlayer>>(populated_players.as_ref()).await {
-                        println!("Something broke: {}", err)
+                        println!("Couldn't send data: {}", err)
                         //Probably should close if err indicates conn closed (NEED TO DO THIS)
                     }
                 }
@@ -85,15 +90,15 @@ async fn main() -> Result<()> {
     });
 
     //Check config and either start WebRTC or WebSocket or NONE
-    let server_thread = tokio::spawn(async move {
+    let _server_thread = tokio::spawn(async move {
         ServerType::SSE.start_server(&data_channel_tx).await?;
         // ServerType::WebRTC.start_server(&data_channel_tx).await?;
         Ok::<(), anyhow::Error>(())
     });
 
-    let res = join!(reader_thread, server_thread);
-    println!("broadcast_thread result: {:?}", broadcast_thread);
-    println!("res: {:?}", res);
+    tokio::signal::ctrl_c().await?;
+    let report = guard.report().build().unwrap();
+    println!("report: {:?}", report); //write to file to upload and view
 
     return Ok(())
 }

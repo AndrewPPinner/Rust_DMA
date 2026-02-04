@@ -39,7 +39,8 @@
 <!-- MessagePack -->
 <script src="https://cdn.jsdelivr.net/npm/@msgpack/msgpack/dist/msgpack.min.js"></script>
 
-<script>
+<script type="module">
+import { decode } from "https://cdn.jsdelivr.net/npm/@msgpack/msgpack/+esm";
 (() => {
   let rtcChannel = null;
   let sse = null;
@@ -49,6 +50,11 @@
 
   const log = m => {
     const el = document.getElementById("log");
+    if (msgCount > 100) {
+      el.textContent = m + "\n";
+      el.scrollTop = el.scrollHeight;
+      msgCount = 0;
+    }
     el.textContent += m + "\n";
     el.scrollTop = el.scrollHeight;
   };
@@ -121,12 +127,17 @@
       log("SSE connection open");
     };
 
-    sse.onmessage = e => {
-      // SSE delivers text → base64 → bytes
-      const raw = atob(e.data);
-      const bytes = new Uint8Array([...raw].map(c => c.charCodeAt(0)));
-      const data = msgpack.decode(bytes);
+    sse.onmessage = (event) => {
+      const b64 = event.data;
 
+      // Fast base64 → bytes
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+
+      const data = decode(bytes);
       log(`${msgCount++}: From Rust (SSE): ${JSON.stringify(data)}`);
     };
 
