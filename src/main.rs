@@ -7,17 +7,12 @@ mod server;
 use std::{thread};
 use anyhow::Result;
 use memprocfs::{FLAG_NOCACHE, Vmm};
-use tokio::{join, sync::mpsc, time::{sleep}};
+use tokio::{sync::mpsc, time::{sleep}};
 
 use crate::{constants::{game_offsets, player_offsets}, server::{Connection, ServerType}, tarkov::players::PopulatedPlayer, vmm_wrapper::TarkovVmmProcess};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let guard = pprof::ProfilerGuardBuilder::default()
-        .frequency(1000)
-        .build()
-        .unwrap();
-
     //Need to handle looping until game process found. That way you don't have to wait to open until game starts
     let (player_tx, mut player_rx) = tokio::sync::watch::channel::<Vec<PopulatedPlayer>>(Vec::with_capacity(10));
     let (data_channel_tx, mut data_channel_rx) = mpsc::channel(10); //might want to use unbound?
@@ -97,8 +92,6 @@ async fn main() -> Result<()> {
     });
 
     tokio::signal::ctrl_c().await?;
-    let report = guard.report().build().unwrap();
-    println!("report: {:?}", report); //write to file to upload and view
 
     return Ok(())
 }
