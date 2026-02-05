@@ -3,7 +3,7 @@ use serde::Serialize;
 
 pub enum Encoding {
     UFT8,
-    UNICODE
+    UNICODE,
 }
 
 impl Encoding {
@@ -14,7 +14,7 @@ impl Encoding {
                 let slice = &bytes[..len];
 
                 Ok(std::str::from_utf8(slice)?.to_owned())
-            },
+            }
             Encoding::UNICODE => {
                 let mut len = bytes.len();
                 for i in (0..bytes.len()).step_by(2) {
@@ -32,7 +32,7 @@ impl Encoding {
                     .collect();
 
                 Ok(String::from_utf16(&utf16)?)
-            },
+            }
         }
     }
 }

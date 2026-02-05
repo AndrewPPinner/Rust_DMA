@@ -1,14 +1,21 @@
-use std::{sync::{Arc, atomic::{AtomicBool, Ordering}, mpsc}, thread};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
+    thread,
+};
 
+use crate::{constants::unity_offsets, utils::Encoding, vmm_wrapper::TarkovVmmProcess};
 use anyhow::{Result, anyhow};
-use memprocfs::{FLAG_NOCACHE};
-use crate::{constants::{unity_offsets}, utils::Encoding, vmm_wrapper::TarkovVmmProcess};
+use memprocfs::FLAG_NOCACHE;
 
 #[repr(C)]
 pub struct GameObjectManager {
     _pad0: [u8; 0x20],
-    pub last_active_node: u64,  // 0x20
-    pub active_nodes: u64,      // 0x28
+    pub last_active_node: u64, // 0x20
+    pub active_nodes: u64,     // 0x28
 }
 
 #[repr(C)]
@@ -16,33 +23,38 @@ pub struct GameObjectManager {
 struct LinkedListObject {
     prev: u64,
     next: u64,
-    object: u64
+    object: u64,
 }
 
 pub struct GameWorld {
     pub game_world_ptr: u64,
-    pub map_name: String
+    pub map_name: String,
 }
 
 impl TarkovVmmProcess<'_> {
     pub fn get_game_world(&self) -> Result<GameWorld> {
         let game_sig = self.get_game_address()?;
         let rva = self.vmm.mem_read_as::<i32>(game_sig + 3, FLAG_NOCACHE)?;
-        let game_ptr = self.vmm.mem_read_as::<u64>(game_sig + 7 + rva as u64, FLAG_NOCACHE)?;
+        let game_ptr = self
+            .vmm
+            .mem_read_as::<u64>(game_sig + 7 + rva as u64, FLAG_NOCACHE)?;
         let game_world = self.vmm.mem_read_as::<GameObjectManager>(game_ptr, 0)?;
 
-        let first = self.vmm.mem_read_as::<LinkedListObject>(game_world.active_nodes, 0)?;
-        let last = self.vmm.mem_read_as::<LinkedListObject>(game_world.last_active_node, 0)?;
+        let first = self
+            .vmm
+            .mem_read_as::<LinkedListObject>(game_world.active_nodes, 0)?;
+        let last = self
+            .vmm
+            .mem_read_as::<LinkedListObject>(game_world.last_active_node, 0)?;
 
         //Benchmark this, vs straight traverse vs block in place (async)
         let (send, rec) = mpsc::channel::<Result<GameWorld>>();
         let cancel = Arc::new(AtomicBool::new(false));
-        
+
         let result = thread::scope(|t| {
-            
             let fw_cancel = Arc::clone(&cancel);
             let fw_send = send.clone();
-            t.spawn(move || { 
+            t.spawn(move || {
                 let res = self.find_game_world_fw(first, last, &fw_cancel);
                 if res.is_ok() {
                     fw_cancel.store(true, Ordering::Relaxed);
@@ -65,10 +77,15 @@ impl TarkovVmmProcess<'_> {
             return rec.recv()?;
         });
 
-        Ok(result?)
-    }   
+        return result;
+    }
 
-    fn find_game_world_fw(&self, mut current: LinkedListObject, last: LinkedListObject, cancel: &AtomicBool) -> Result<GameWorld> {
+    fn find_game_world_fw(
+        &self,
+        mut current: LinkedListObject,
+        last: LinkedListObject,
+        cancel: &AtomicBool,
+    ) -> Result<GameWorld> {
         while current.object != last.object && !cancel.load(Ordering::Relaxed) {
             if let Ok(game_world) = self.parse_game_world(&current) {
                 println!("Found on forward");
@@ -79,7 +96,12 @@ impl TarkovVmmProcess<'_> {
         return Err(anyhow!("Game world not found! (Forward)"));
     }
 
-    fn find_game_world_bw(&self, mut current: LinkedListObject, last: LinkedListObject, cancel: &AtomicBool) -> Result<GameWorld> {
+    fn find_game_world_bw(
+        &self,
+        mut current: LinkedListObject,
+        last: LinkedListObject,
+        cancel: &AtomicBool,
+    ) -> Result<GameWorld> {
         while current.object != last.object && !cancel.load(Ordering::Relaxed) {
             if let Ok(game_world) = self.parse_game_world(&current) {
                 println!("Found on forward");
@@ -91,37 +113,55 @@ impl TarkovVmmProcess<'_> {
     }
 
     fn parse_game_world(&self, current: &LinkedListObject) -> Result<GameWorld> {
-        let object_name_ptr = self.vmm.mem_read_as::<u64>(current.object + unity_offsets::GAME_OBJECT_NAME, FLAG_NOCACHE)?;
+        let object_name_ptr = self.vmm.mem_read_as::<u64>(
+            current.object + unity_offsets::GAME_OBJECT_NAME,
+            FLAG_NOCACHE,
+        )?;
         let object_name = self.mem_read_string(object_name_ptr, 64, Encoding::UFT8)?;
-        
+
         if !object_name.contains("GameWorld") {
             return Err(anyhow!("Not Found"));
         }
-        
-        let local_world_ptr = self.mem_read_chain(current.object, unity_offsets::GAME_WORLD_CHAIN)?;
-        let mut map_ptr = self.vmm.mem_read_as::<u64>(local_world_ptr + self.game_offsets.location_id, 0)?;
+
+        let local_world_ptr =
+            self.mem_read_chain(current.object, unity_offsets::GAME_WORLD_CHAIN)?;
+        let mut map_ptr = self
+            .vmm
+            .mem_read_as::<u64>(local_world_ptr + self.game_offsets.location_id, 0)?;
         if map_ptr == 0x0 {
-            let local_player = self.vmm.mem_read_as::<u64>(local_world_ptr + self.game_offsets.main_player, 0)?;
-            map_ptr = self.vmm.mem_read_as::<u64>(local_player + self.player_offsets.location, 0)?;
+            let local_player = self
+                .vmm
+                .mem_read_as::<u64>(local_world_ptr + self.game_offsets.main_player, 0)?;
+            map_ptr = self
+                .vmm
+                .mem_read_as::<u64>(local_player + self.player_offsets.location, 0)?;
         }
 
-        let map_name = self.mem_read_string(map_ptr + unity_offsets::UNITY_UTF8, 128, Encoding::UNICODE)?;
+        let map_name =
+            self.mem_read_string(map_ptr + unity_offsets::UNITY_UTF8, 128, Encoding::UNICODE)?;
         if map_name == "hideout" {
-            return Err(anyhow!("Found Hideout, skip"))
+            return Err(anyhow!("Found Hideout, skip"));
         }
 
-        return Ok(GameWorld{ game_world_ptr: local_world_ptr, map_name: map_name })
+        return Ok(GameWorld {
+            game_world_ptr: local_world_ptr,
+            map_name: map_name,
+        });
     }
 
     fn get_game_address(&self) -> Result<u64> {
-        let unity_process = self.vmm.map_module(true, true)?.into_iter()
-        .find(|x| x.name == "UnityPlayer.dll").ok_or(anyhow!("UnityPlayer.dll not found"))?;
+        let unity_process = self
+            .vmm
+            .map_module(true, true)?
+            .into_iter()
+            .find(|x| x.name == "UnityPlayer.dll")
+            .ok_or(anyhow!("UnityPlayer.dll not found"))?;
 
         let signature = "48 89 05 ?? ?? ?? ?? 48 83 C4 ?? C3 33 C9";
         let bytes: Vec<&str> = signature.split_whitespace().collect();
         let mut pattern: Vec<u8> = Vec::new();
         let mut mask: Vec<u8> = Vec::new();
-        
+
         for byte_str in bytes {
             if byte_str == "??" {
                 pattern.push(0x00);
@@ -131,23 +171,23 @@ impl TarkovVmmProcess<'_> {
                 mask.push(0x00); // Don't skip (exact match)
             }
         }
-        
+
         let mut search = self.vmm.search(
-            unity_process.va_base, 
-            unity_process.va_base + unity_process.image_size as u64, 
+            unity_process.va_base,
+            unity_process.va_base + unity_process.image_size as u64,
             1,
-            0
+            0,
         )?;
-        
+
         // Add the search term with skipmask
         search.add_search_ex(&pattern, Some(&mask), 1)?;
         search.start();
         let results = search.result();
-        
-        if results.result.len() > 0 {
-        return Ok(results.result[0].0);
+
+        if !results.result.is_empty() {
+            return Ok(results.result[0].0);
         } else {
-            return  Err(anyhow!("Signature look up failed"));
+            return Err(anyhow!("Signature look up failed"));
         }
     }
 }

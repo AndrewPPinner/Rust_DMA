@@ -1,38 +1,50 @@
-mod tarkov;
 mod constants;
-mod vmm_wrapper;
-mod utils;
 mod server;
+mod tarkov;
+mod utils;
+mod vmm_wrapper;
 
-use std::{thread};
 use anyhow::Result;
 use memprocfs::{FLAG_NOCACHE, Vmm};
-use tokio::{sync::mpsc, time::{sleep}};
+use std::thread;
+use tokio::{sync::mpsc, time::sleep};
 
-use crate::{constants::{game_offsets, player_offsets}, server::{Connection, ServerType}, tarkov::players::PopulatedPlayer, vmm_wrapper::TarkovVmmProcess};
+use crate::{
+    constants::{game_offsets, player_offsets},
+    server::{Connection, ServerType},
+    tarkov::players::PopulatedPlayer,
+    vmm_wrapper::TarkovVmmProcess,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     //Need to handle looping until game process found. That way you don't have to wait to open until game starts
-    let (player_tx, mut player_rx) = tokio::sync::watch::channel::<Vec<PopulatedPlayer>>(Vec::with_capacity(10));
+    let (player_tx, mut player_rx) =
+        tokio::sync::watch::channel::<Vec<PopulatedPlayer>>(Vec::with_capacity(10));
     let (data_channel_tx, mut data_channel_rx) = mpsc::channel(10); //might want to use unbound?
 
     //If something fails in this thread we should kill the process and state the error
     let _reader_thread = tokio::task::spawn_blocking(move || -> Result<(), anyhow::Error> {
-        let vmm = Vmm::new("C:\\Users\\andpp\\code\\Rust_DMA\\src\\vmm.dll", &vec!["-device", "fpga"])?;
+        let vmm = Vmm::new(
+            "C:\\Users\\andpp\\code\\Rust_DMA\\src\\vmm.dll",
+            &vec!["-device", "fpga"],
+        )?;
         let process = vmm.process_from_name("EscapeFromTarkov.exe")?;
-        
+
         let unity_base = process.get_module_base("UnityPlayer.dll")?;
-        let tarkov_process = TarkovVmmProcess { 
-            vmm: process, 
-            unity_base: unity_base, 
+        let tarkov_process = TarkovVmmProcess {
+            vmm: process,
+            unity_base: unity_base,
             scatter: process.mem_scatter(FLAG_NOCACHE)?,
-            player_offsets: player_offsets::PLAYER_OFFSETS, 
-            game_offsets: game_offsets::GAME_OFFSETS
+            player_offsets: player_offsets::PLAYER_OFFSETS,
+            game_offsets: game_offsets::GAME_OFFSETS,
         };
-    
+
         let game_world = tarkov_process.get_game_world()?;
-        println!("GameWorld Found {} | Map {}", game_world.game_world_ptr, game_world.map_name);
+        println!(
+            "GameWorld Found {} | Map {}",
+            game_world.game_world_ptr, game_world.map_name
+        );
         let players = tarkov_process.get_players(game_world.game_world_ptr)?;
         loop {
             tarkov_process.scatter.execute()?;
@@ -41,7 +53,7 @@ async fn main() -> Result<()> {
             //Update to resuse the vec to prevent the allocation here (benchmark to see the diff)
             let mut populated_players: Vec<PopulatedPlayer> = Vec::with_capacity(players.len());
             for p in &players {
-                populated_players.push(tarkov_process.populate_player(&p)?);
+                populated_players.push(tarkov_process.populate_player(p)?);
             }
             if let Err(err) = player_tx.send(populated_players) {
                 println!("Send errored: {}", err);
@@ -52,13 +64,13 @@ async fn main() -> Result<()> {
 
     //Handle exits better
     let _broadcast_thread = thread::spawn(move || -> Result<(), anyhow::Error> {
-        let async_thread = 
-            tokio::runtime::Builder::new_current_thread()
-            .enable_all().build()?;
+        let async_thread = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
 
         async_thread.block_on(async {
             let mut connections = Vec::<Connection>::with_capacity(5);
-            let delay_dur = tokio::time::Duration::from_millis((1000 + 60 / 2) / 60 as u64);
+            let delay_dur = tokio::time::Duration::from_millis((1000 + 60 / 2) / 60_u64);
             loop {
                 sleep(delay_dur).await;
                 if let Err(err) = player_rx.changed().await {
@@ -74,7 +86,10 @@ async fn main() -> Result<()> {
                 }
 
                 for conn in &connections {
-                    if let Err(err) = conn.send::<Vec<PopulatedPlayer>>(populated_players.as_ref()).await {
+                    if let Err(err) = conn
+                        .send::<Vec<PopulatedPlayer>>(populated_players.as_ref())
+                        .await
+                    {
                         println!("Couldn't send data: {}", err)
                         //Probably should close if err indicates conn closed (NEED TO DO THIS)
                     }
@@ -93,5 +108,5 @@ async fn main() -> Result<()> {
 
     tokio::signal::ctrl_c().await?;
 
-    return Ok(())
+    return Ok(());
 }

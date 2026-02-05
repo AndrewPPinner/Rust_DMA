@@ -13,27 +13,51 @@ pub struct PlayerOffsets {
     pub group_id: u64,
     #[cfg_attr(any(), csharp_struct = "MovementContext", csharp_field = "_rotation")]
     pub rotation: u64,
-    
+
     #[cfg_attr(any(), csharp_struct = "ObservedPlayerView", csharp_field = "IsAI")]
     pub networked_is_bot: u64,
-    #[cfg_attr(any(), csharp_struct = "ObservedPlayerView", csharp_field = "ObservedPlayerController")]
+    #[cfg_attr(
+        any(),
+        csharp_struct = "ObservedPlayerView",
+        csharp_field = "ObservedPlayerController"
+    )]
     pub networked_player_controller: u64,
-    #[cfg_attr(any(), csharp_struct = "ObservedPlayerController", csharp_field = "HealthController")]
+    #[cfg_attr(
+        any(),
+        csharp_struct = "ObservedPlayerController",
+        csharp_field = "HealthController"
+    )]
     pub networked_health_controller: u64,
-    #[cfg_attr(any(), csharp_struct = "ObservedHealthController", csharp_field = "HealthStatus")]
+    #[cfg_attr(
+        any(),
+        csharp_struct = "ObservedHealthController",
+        csharp_field = "HealthStatus"
+    )]
     pub networked_health_value: u64,
-    #[cfg_attr(any(), csharp_struct = "ObservedHealthController", csharp_field = "_playerCorpse")]
+    #[cfg_attr(
+        any(),
+        csharp_struct = "ObservedHealthController",
+        csharp_field = "_playerCorpse"
+    )]
     pub networked_corpse: u64,
-    #[cfg_attr(any(), csharp_struct = "ObservedPlayerStateContext", csharp_field = "Rotation")]
+    #[cfg_attr(
+        any(),
+        csharp_struct = "ObservedPlayerStateContext",
+        csharp_field = "Rotation"
+    )]
     pub networked_rotation: u64,
     #[cfg_attr(any(), csharp_struct = "ObservedPlayerView", csharp_field = "Side")]
     pub networked_faction: u64,
     #[cfg_attr(any(), csharp_struct = "ObservedPlayerView", csharp_field = "Voice")]
     pub networked_voice: u64,
 
-    
-    #[cfg_attr(any(), is_chain = true, csharp_struct = "ObservedPlayerController | ObservedPlayerMovementController", csharp_field = "MovementController | ObservedPlayerStateContext")]
-    pub networked_movement_chain: [u64; 2]
+    #[cfg_attr(
+        any(),
+        is_chain = true,
+        csharp_struct = "ObservedPlayerController | ObservedPlayerMovementController",
+        csharp_field = "MovementController | ObservedPlayerStateContext"
+    )]
+    pub networked_movement_chain: [u64; 2],
 }
 
 include!("generated_player_offsets.rs");

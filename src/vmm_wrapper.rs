@@ -1,13 +1,16 @@
-use memprocfs::{FLAG_NOCACHE, VmmProcess, VmmScatterMemory};
+use crate::{
+    constants::{game_offsets::GameOffsets, player_offsets::PlayerOffsets, unity_offsets},
+    utils::Encoding,
+};
 use anyhow::{Ok, Result};
-use crate::{constants::{game_offsets::GameOffsets, player_offsets::PlayerOffsets, unity_offsets}, utils::Encoding};
+use memprocfs::{FLAG_NOCACHE, VmmProcess, VmmScatterMemory};
 
 pub struct TarkovVmmProcess<'a> {
     pub scatter: VmmScatterMemory<'a>,
     pub vmm: VmmProcess<'a>,
     pub unity_base: u64,
     pub player_offsets: PlayerOffsets,
-    pub game_offsets: GameOffsets
+    pub game_offsets: GameOffsets,
 }
 
 impl TarkovVmmProcess<'_> {
@@ -32,11 +35,15 @@ impl TarkovVmmProcess<'_> {
     }
 
     //Make Generic
-    pub fn mem_read_array_into_buffer(&self, array_ptr: u64, array_size: usize) -> Result<Vec<u64>> {
+    pub fn mem_read_array_into_buffer(
+        &self,
+        array_ptr: u64,
+        array_size: usize,
+    ) -> Result<Vec<u64>> {
         let size_t = size_of::<u64>();
         let total_bytes = array_size * size_t;
 
-        let mut buffer: Vec<u8> = vec![0u8; total_bytes as usize];
+        let mut buffer: Vec<u8> = vec![0u8; total_bytes];
         self.vmm.mem_read_into(array_ptr, 0, &mut buffer[..])?;
 
         let mut ptr_vec = Vec::with_capacity(array_size);

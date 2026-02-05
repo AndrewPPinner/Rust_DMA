@@ -1,7 +1,11 @@
+use crate::{
+    constants::unity_offsets,
+    utils::{Encoding, Vector2},
+    vmm_wrapper::TarkovVmmProcess,
+};
 use anyhow::{Error, Result, anyhow};
-use memprocfs::{FLAG_NOCACHE};
-use serde::{Serialize};
-use crate::{constants::{unity_offsets}, utils::{Encoding, Vector2}, vmm_wrapper::TarkovVmmProcess};
+use memprocfs::FLAG_NOCACHE;
+use serde::Serialize;
 
 #[derive(Debug)]
 pub struct Player {
@@ -12,7 +16,7 @@ pub struct Player {
 
     pub health_addr: u64,
     pub rota_addr: u64,
-    pub corpse_addr: u64
+    pub corpse_addr: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -21,21 +25,21 @@ pub struct PopulatedPlayer {
     pub human: bool,
     pub player_type: PlayerType,
     pub health_status: HealthStatus,
-    pub rotation: Vector2
+    pub rotation: Vector2,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize)]
 pub enum Faction {
     USEC,
     BEAR,
-    SCAV
+    SCAV,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize)]
 pub enum PlayerType {
-    ClientPlayer,
-    MainPlayer,
-    NetworkedPlayer
+    Client,
+    Main,
+    Networked,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize)]
@@ -45,15 +49,15 @@ pub enum HealthStatus {
     HIGH,
     MEDIUM,
     LOW,
-    SPECIAL
+    SPECIAL,
 }
 
 impl PlayerType {
     fn player_type_from_bytes(p_type_bytes: &[u8]) -> Self {
         match p_type_bytes {
-            bytes if bytes.starts_with(b"ClientPlayer") => Self::ClientPlayer,
-            bytes if bytes.starts_with(b"LocalPlayer") => Self::MainPlayer,
-            _ => Self::NetworkedPlayer
+            bytes if bytes.starts_with(b"ClientPlayer") => Self::Client,
+            bytes if bytes.starts_with(b"LocalPlayer") => Self::Main,
+            _ => Self::Networked,
         }
     }
 }
@@ -81,7 +85,7 @@ impl TryFrom<i32> for HealthStatus {
             2048 => anyhow::Ok(HealthStatus::HIGH),
             4096 => anyhow::Ok(HealthStatus::MEDIUM),
             8192 => anyhow::Ok(HealthStatus::LOW),
-            _ => anyhow::Ok(HealthStatus::SPECIAL)
+            _ => anyhow::Ok(HealthStatus::SPECIAL),
         }
     }
 }
@@ -89,26 +93,35 @@ impl TryFrom<i32> for HealthStatus {
 impl TarkovVmmProcess<'_> {
     pub fn get_players(&self, game_world_ptr: u64) -> Result<Vec<Player>> {
         //Make this a scatter read since local player and all players don't rely on each other (add benchmarking to see if scatters with just x reads is worth the added over head of the scatter struct)
-        let local_player_ptr = self.vmm.mem_read_as::<u64>(game_world_ptr + self.game_offsets.main_player, FLAG_NOCACHE)?;
+        let local_player_ptr = self
+            .vmm
+            .mem_read_as::<u64>(game_world_ptr + self.game_offsets.main_player, FLAG_NOCACHE)?;
         let main_player = self.get_main_player(local_player_ptr)?;
         let mut all_players = self.get_all_players(game_world_ptr, local_player_ptr)?;
         all_players.push(main_player);
 
-        return Ok(all_players)
+        return Ok(all_players);
     }
 
     fn get_all_players(&self, game_world_ptr: u64, player_to_ignore: u64) -> Result<Vec<Player>> {
-        let players_address = self.vmm.mem_read_as::<u64>(game_world_ptr + self.game_offsets.all_players, FLAG_NOCACHE)?;
-        let player_count = self.vmm.mem_read_as::<i32>(players_address + unity_offsets::ARRAY_COUNT_OFFSET, 0)?;
-        let vec_ptr = self.vmm.mem_read_as::<u64>(players_address + unity_offsets::ARRAY_OFFSET, 0)? + unity_offsets::ARRAY_START;
+        let players_address = self
+            .vmm
+            .mem_read_as::<u64>(game_world_ptr + self.game_offsets.all_players, FLAG_NOCACHE)?;
+        let player_count = self
+            .vmm
+            .mem_read_as::<i32>(players_address + unity_offsets::ARRAY_COUNT_OFFSET, 0)?;
+        let vec_ptr = self
+            .vmm
+            .mem_read_as::<u64>(players_address + unity_offsets::ARRAY_OFFSET, 0)?
+            + unity_offsets::ARRAY_START;
         let mut player_ptr_vec = self.mem_read_array_into_buffer(vec_ptr, player_count as usize)?;
         player_ptr_vec.retain(|&x| x != 0x0 && x != player_to_ignore);
-        
+
         let mut player_vec = Vec::with_capacity(player_ptr_vec.len());
         for player_ptr in player_ptr_vec {
             let player_bytes = self.get_object_bytes(player_ptr, 64)?;
             let p_type = PlayerType::player_type_from_bytes(&player_bytes);
-            
+
             if let Ok(player) = self.get_player_details(player_ptr, &p_type) {
                 player_vec.push(player);
             } else {
@@ -120,55 +133,104 @@ impl TarkovVmmProcess<'_> {
     }
 
     fn get_main_player(&self, player_ptr: u64) -> Result<Player> {
-        return Ok(self.get_player_details(player_ptr, &PlayerType::MainPlayer)?);
+        return self.get_player_details(player_ptr, &PlayerType::Main);
     }
 
     fn get_player_details(&self, player_ptr: u64, p_type: &PlayerType) -> Result<Player> {
         match p_type {
-            PlayerType::ClientPlayer | PlayerType::MainPlayer => {
-                let profile_ptr = self.vmm.mem_read_as::<u64>(player_ptr + self.player_offsets.profile, 0)?;
-                let info_ptr = self.vmm.mem_read_as::<u64>(profile_ptr + self.player_offsets.info, 0)?;
-                let faction_value = self.vmm.mem_read_as::<i32>(info_ptr + self.player_offsets.faction, 0)?;
+            PlayerType::Client | PlayerType::Main => {
+                let profile_ptr = self
+                    .vmm
+                    .mem_read_as::<u64>(player_ptr + self.player_offsets.profile, 0)?;
+                let info_ptr = self
+                    .vmm
+                    .mem_read_as::<u64>(profile_ptr + self.player_offsets.info, 0)?;
+                let faction_value = self
+                    .vmm
+                    .mem_read_as::<i32>(info_ptr + self.player_offsets.faction, 0)?;
 
                 // let group_id_ptr = process.vmm.mem_read_as::<u64>(info_ptr + player_offsets::GROUP_ID, 0)?;
                 // let group_id = process.mem_read_string(group_id_ptr, 128, Encoding::UFT8)?;
 
-                let move_context_ptr = self.vmm.mem_read_as::<u64>(player_ptr + self.player_offsets.movement_context, 0)?;
+                let move_context_ptr = self
+                    .vmm
+                    .mem_read_as::<u64>(player_ptr + self.player_offsets.movement_context, 0)?;
                 let rotation_addr = move_context_ptr + self.player_offsets.rotation;
                 self.scatter.prepare_as::<Vector2>(rotation_addr)?;
 
-                return Ok(Player { ptr: player_ptr, faction: Faction::try_from(faction_value)?, human: true, player_type: PlayerType::ClientPlayer, health_addr: 0, corpse_addr: 0, rota_addr: rotation_addr });
-            },
-            PlayerType::NetworkedPlayer => {
+                return Ok(Player {
+                    ptr: player_ptr,
+                    faction: Faction::try_from(faction_value)?,
+                    human: true,
+                    player_type: PlayerType::Client,
+                    health_addr: 0,
+                    corpse_addr: 0,
+                    rota_addr: rotation_addr,
+                });
+            }
+            PlayerType::Networked => {
                 //Can ignore profle stuff since that is just an API call and I can make web client handle that
-                let player_controller_ptr = self.vmm.mem_read_as::<u64>(player_ptr + self.player_offsets.networked_player_controller, 0)?;
-                let health_ptr = self.vmm.mem_read_as::<u64>(player_controller_ptr + self.player_offsets.networked_health_controller, 0)?;
-                let move_context_ptr = self.mem_read_chain(player_controller_ptr, self.player_offsets.networked_movement_chain)?;
-                let is_bot = self.vmm.mem_read_as::<bool>(player_ptr + self.player_offsets.networked_is_bot, 0)?;
-                
+                let player_controller_ptr = self.vmm.mem_read_as::<u64>(
+                    player_ptr + self.player_offsets.networked_player_controller,
+                    0,
+                )?;
+                let health_ptr = self.vmm.mem_read_as::<u64>(
+                    player_controller_ptr + self.player_offsets.networked_health_controller,
+                    0,
+                )?;
+                let move_context_ptr = self.mem_read_chain(
+                    player_controller_ptr,
+                    self.player_offsets.networked_movement_chain,
+                )?;
+                let is_bot = self
+                    .vmm
+                    .mem_read_as::<bool>(player_ptr + self.player_offsets.networked_is_bot, 0)?;
+
                 if !is_bot {
-                    let group_id_ptr = self.vmm.mem_read_as::<u64>(player_ptr + self.player_offsets.group_id, 0)?;
-                    let group_id = self.mem_read_string(group_id_ptr + unity_offsets::UNITY_UTF8, 128, Encoding::UNICODE)?; //Still needs tested
+                    let group_id_ptr = self
+                        .vmm
+                        .mem_read_as::<u64>(player_ptr + self.player_offsets.group_id, 0)?;
+                    let group_id = self.mem_read_string(
+                        group_id_ptr + unity_offsets::UNITY_UTF8,
+                        128,
+                        Encoding::UNICODE,
+                    )?; //Still needs tested
                 }
-                
-                let faction_value = self.vmm.mem_read_as::<i32>(player_ptr + self.player_offsets.networked_faction, 0)?;
+
+                let faction_value = self
+                    .vmm
+                    .mem_read_as::<i32>(player_ptr + self.player_offsets.networked_faction, 0)?;
                 let faction = Faction::try_from(faction_value)?;
-                
+
                 // Works but the SCAV_{num} isn't unique. Probably fine.
-                if faction == Faction::SCAV{
-                    let voice_ptr = self.vmm.mem_read_as::<u64>(player_ptr + self.player_offsets.networked_voice, 0)?;
-                    let voice = self.mem_read_string(voice_ptr + unity_offsets::UNITY_UTF8, 128, Encoding::UNICODE)?;
+                if faction == Faction::SCAV {
+                    let voice_ptr = self
+                        .vmm
+                        .mem_read_as::<u64>(player_ptr + self.player_offsets.networked_voice, 0)?;
+                    let voice = self.mem_read_string(
+                        voice_ptr + unity_offsets::UNITY_UTF8,
+                        128,
+                        Encoding::UNICODE,
+                    )?;
                 }
-                
+
                 let rotation_addr = move_context_ptr + self.player_offsets.networked_rotation;
                 let health_addr = health_ptr + self.player_offsets.networked_health_value;
                 let corpse_addr = health_ptr + self.player_offsets.networked_corpse;
                 self.scatter.prepare_as::<i32>(health_addr)?;
                 self.scatter.prepare_as::<Vector2>(rotation_addr)?;
                 self.scatter.prepare_as::<u64>(corpse_addr)?;
-                
-                return Ok(Player { ptr: player_ptr, faction, human: !is_bot, player_type: PlayerType::NetworkedPlayer, health_addr: health_addr, rota_addr: rotation_addr, corpse_addr: corpse_addr });
-            },
+
+                return Ok(Player {
+                    ptr: player_ptr,
+                    faction,
+                    human: !is_bot,
+                    player_type: PlayerType::Networked,
+                    health_addr: health_addr,
+                    rota_addr: rotation_addr,
+                    corpse_addr: corpse_addr,
+                });
+            }
         }
     }
 
@@ -177,8 +239,14 @@ impl TarkovVmmProcess<'_> {
         let health_value = self.scatter.read_as::<i32>(player.health_addr)?;
         let rotation_value = self.scatter.read_as::<Vector2>(player.rota_addr)?;
         let corpse_value = self.scatter.read_as::<u64>(player.corpse_addr)?;
-        let status = HealthStatus::try_from(health_value)?; 
+        let status = HealthStatus::try_from(health_value)?;
 
-        return Ok(PopulatedPlayer { faction: player.faction, human: player.human, player_type: player.player_type, health_status: status, rotation: rotation_value })
+        return Ok(PopulatedPlayer {
+            faction: player.faction,
+            human: player.human,
+            player_type: player.player_type,
+            health_status: status,
+            rotation: rotation_value,
+        });
     }
 }
