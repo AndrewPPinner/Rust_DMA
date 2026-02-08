@@ -138,6 +138,12 @@ import { decode } from "https://cdn.jsdelivr.net/npm/@msgpack/msgpack/+esm";
       }
 
       const data = decode(bytes);
+      const systemTime = data[1]
+      const [secs, nanos] = systemTime;
+      const date = new Date(secs * 1000 + nanos / 1e6);
+      const now = new Date();
+
+      console.log((date.getTime() - now.getTime())) //Getting around 400 which doesn't make sense because it feels instant... Can't compare Datetimes I don't think
       log(`${msgCount++}: From Rust (SSE): ${JSON.stringify(data)}`);
     };
 
