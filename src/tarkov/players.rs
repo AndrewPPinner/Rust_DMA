@@ -19,7 +19,7 @@ pub struct Player {
     pub corpse_addr: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone, Copy)]
 pub struct PopulatedPlayer {
     pub faction: Faction,
     pub human: bool,

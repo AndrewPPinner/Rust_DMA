@@ -25,10 +25,8 @@ async fn main() -> Result<()> {
 
     //If something fails in this thread we should kill the process and state the error
     let _reader_thread = tokio::task::spawn_blocking(move || -> Result<(), anyhow::Error> {
-        let vmm = Vmm::new(
-            "C:\\Users\\andpp\\code\\Rust_DMA\\src\\vmm.dll",
-            &vec!["-device", "fpga"],
-        )?;
+        let vmm = Vmm::new(".\\src\\vmm.dll", &vec!["-device", "fpga"])
+            .unwrap_or_else(|e| panic!("{}", e));
         let process = vmm.process_from_name("EscapeFromTarkov.exe")?;
 
         let unity_base = process.get_module_base("UnityPlayer.dll")?;
@@ -62,7 +60,6 @@ async fn main() -> Result<()> {
         }
     });
 
-    //Handle exits better
     let _broadcast_thread = thread::spawn(move || -> Result<(), anyhow::Error> {
         let async_thread = tokio::runtime::Builder::new_current_thread()
             .enable_all()
