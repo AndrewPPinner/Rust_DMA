@@ -143,7 +143,7 @@ import { decode } from "https://cdn.jsdelivr.net/npm/@msgpack/msgpack/+esm";
       const date = new Date(secs * 1000 + nanos / 1e6);
       const now = new Date();
 
-      console.log((date.getTime() - now.getTime())) //Getting around 400 which doesn't make sense because it feels instant... Can't compare Datetimes I don't think
+      console.log((date.getTime() - now.getTime())) //Getting around 40 which doesn't make sense because it feels instant... Good enough for comparing against different backends but won't work for actual latency
       log(`${msgCount++}: From Rust (SSE): ${JSON.stringify(data)}`);
     };
 
